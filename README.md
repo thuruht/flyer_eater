@@ -21,7 +21,7 @@
 5. Deploy the Worker first (wrangler deploy) to get the .workers.dev URL.
 
 6. Event Subscriptions → Enable Events → Request URL:
-     https://flyer-eater.YOUR_SUBDOMAIN.workers.dev
+     https://flyer-eater.farewellcafe.com
    (The Worker handles url_verification automatically via app.run())
 
 7. Subscribe to bot events → Add Bot User Events:

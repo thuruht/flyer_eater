@@ -2,3 +2,7 @@ node_modules
 .dev.vars
 dist
 .wrangler
+
+# Development / reference files
+*.txt
+*.png

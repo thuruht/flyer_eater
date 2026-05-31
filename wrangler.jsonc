@@ -5,6 +5,13 @@
   "compatibility_flags": ["nodejs_compat"],
   "account_id": "829921384c97e0dbbb34430e307d6b52",
 
+  "routes": [
+    {
+      "pattern": "flyer-eater.farewellcafe.com",
+      "custom_domain": true
+    }
+  ],
+
   "ai": {
     "binding": "AI"
   },
