@@ -1,0 +1,39 @@
+{
+  "name": "flyer-eater",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "account_id": "829921384c97e0dbbb34430e307d6b52",
+
+  "ai": {
+    "binding": "AI"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "farewell-db",
+      "database_id": "76dc7b30-005a-4268-afa0-10b2fe242253",
+      "remote": true
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "IMAGES",
+      "bucket_name": "fwhy-images",
+      "remote": true
+    }
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "STAGING_KV",
+      "id": "03088878fb3a427197f0f01bc1cc0de0"
+    }
+  ],
+
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "flyer-eater",
+  "version": "1.0.0",
+  "description": "Slack-to-farewellcafe.com Event Ingest Bot",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "slack-cloudflare-workers": "^1.3.10"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260130.0",
+    "typescript": "^5.x",
+    "wrangler": "^3.x"
+  }
+}
