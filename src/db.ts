@@ -38,8 +38,11 @@ export function buildEvent(
 ): { event: FarwhyEvent, warnings: string[] } {
   const warnings: string[] = [];
 
-  // Merge logic: caption > VLM > default
-  const title = captionExtract.title ?? vlmExtract.title;
+  // Merge logic: caption > VLM > performers > default
+  let title = captionExtract.title ?? vlmExtract.title;
+  if (!title && captionExtract.performers?.length) title = captionExtract.performers.join(' / ');
+  if (!title && vlmExtract.performers?.length) title = vlmExtract.performers.join(' / ');
+
   if (!title) warnings.push('Title defaulted to TBA');
 
   const date = captionExtract.date ?? vlmExtract.date;

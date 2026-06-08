@@ -195,10 +195,10 @@ function extractPerformers(text: string): string[] | null {
 
   // Strip out date-like fragments, price, time, venue mentions
   let cleaned = text
-    .replace(/\b(20\d{2})[-/]\d{1,2}[-/]\d{1,2}\b/g, '')
-    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, '')
+    .replace(/\b(20\d{2})[\/\.\-](0?[1-9]|1[0-2])[\/\.\-](0?[1-9]|[12]\d|3[01])\b/g, '')
+    .replace(/\b(0?[1-9]|1[0-2])[\/\.\-\s](0?[1-9]|[12]\d|3[01])(?:[\/\.\-\s](20\d{2}|\d{2}))?\.?\b/g, '')
     .replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{4})?\b/gi, '')
-    .replace(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*(?:\s*,?\s*\d{4})?\b/gi, '')
+    .replace(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(${Object.keys(MONTH_MAP).join('|')})\w*(?:\s*,?\s*\d{4})?\b/gi, '')
     .replace(/\b(?:tonight|tomorrow|today|this\s+\w+day)\b/gi, '')
     .replace(/\$\s*\d+/g, '')
     .replace(/\b(?:p\.?w\.?y\.?c\.?|pay what you can|sliding scale|free|donation)\b/gi, '')

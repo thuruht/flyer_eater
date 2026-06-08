@@ -69,7 +69,7 @@ USE THE CALENDAR DATA as the primary source of truth for spelling, dates, and li
 
 Return ONLY a valid JSON object with these keys. If a value cannot be determined, use null.
 {
-  "title": "<headline act or overall show title, string>",
+  "title": "< headline act or combined performers, string >",
   "date": "<YYYY-MM-DD>",
   "event_time": "<e.g. '8pm' or 'Doors 7 / Show 8', string or null>",
   "price": "<e.g. 'PWYC / $10' or '$8' or 'Free', string or null>",
@@ -83,6 +83,7 @@ Return ONLY a valid JSON object with these keys. If a value cannot be determined
 RULES:
 - "pwyc", "pay what you can", "sliding scale" -> normalize to "PWYC"
 - Performers array: include city/state if visible, e.g. "Band (KC)"
+- Title: If there isn't a clear show title, use the headline band or join the top 3 bands with " / ".
 - Date MUST be YYYY-MM-DD. 
 - PRIORITY: If the SLACK CAPTION contains a date (like "06.18.26"), USE THAT DATE instead of guessing from the flyer text.
 - If no year is provided, assume the nearest upcoming occurrence from today.
