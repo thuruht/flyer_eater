@@ -6,3 +6,5 @@ dist
 # Development / reference files
 *.txt
 *.png
+prompt_origins_brainstom.txt
+prompt.txt

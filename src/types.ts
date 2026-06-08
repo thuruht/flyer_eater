@@ -19,6 +19,7 @@ export interface FarwhyEvent {
   performers: string;              // JSON array string
   tags: string;                    // JSON array string
   external_links: string;          // JSON object string
+  slack_ts?: string;               // Link to original Slack message
 }
 
 // Raw output from the VLM before auto-population
@@ -32,6 +33,7 @@ export interface VLMExtract {
   tags?: string[];
   description?: string;
   announce_after?: string | null;  // ISO string or null
+  slack_ts?: string;
 }
 
 // Shape of objects stored in STAGING_KV

@@ -1,4 +1,4 @@
-import type { VLMExtract } from './types';
+import type { VLMExtract, FarwhyEvent } from './types';
 import { safeParseJson } from './json_utils';
 
 /**
@@ -36,13 +36,15 @@ If you cannot read anything, output "NO_TEXT_FOUND".
 
 /**
  * Step 2: Parse the raw OCR text into structured JSON.
- * Uses a text-only LLM for reasoning, combining OCR text with caption hints.
+ * Uses a text-only LLM for reasoning, combining OCR text with caption hints
+ * and optional official calendar text.
  */
 export async function parseTranscription(
   ai: Ai,
   ocrText: string,
   caption: string,
-  venueHint: 'farewell' | 'howdy' | null
+  venueHint: 'farewell' | 'howdy' | null,
+  calendarText: string | null = null
 ): Promise<Partial<VLMExtract>> {
   if (!ocrText || ocrText === 'NO_TEXT_FOUND') {
     return {};
@@ -55,6 +57,15 @@ You are a data extraction assistant for DIY music venues in Kansas City: Farewel
 Your job is to extract structured event data from messy OCR text.
 
 Today's date is: ${today}. Use this to resolve relative dates like "this Saturday".
+
+${calendarText ? `
+OFFICIAL VENUE CALENDAR (The HIGHEST source of truth):
+"""
+${calendarText}
+"""
+If any band names or dates in the flyer match an entry in this calendar, 
+USE THE CALENDAR DATA as the primary source of truth for spelling, dates, and lineups.
+` : ''}
 
 Return ONLY a valid JSON object with these keys. If a value cannot be determined, use null.
 {
@@ -72,7 +83,9 @@ Return ONLY a valid JSON object with these keys. If a value cannot be determined
 RULES:
 - "pwyc", "pay what you can", "sliding scale" -> normalize to "PWYC"
 - Performers array: include city/state if visible, e.g. "Band (KC)"
-- Date MUST be YYYY-MM-DD. Assume the nearest upcoming occurrence from today.
+- Date MUST be YYYY-MM-DD. 
+- PRIORITY: If the SLACK CAPTION contains a date (like "06.18.26"), USE THAT DATE instead of guessing from the flyer text.
+- If no year is provided, assume the nearest upcoming occurrence from today.
 - Output ONLY raw JSON. No markdown fences.
   `.trim();
 
@@ -115,4 +128,46 @@ ${ocrText}
   }
 
   return parsed;
+}
+
+/**
+ * Step 3: Parse natural language corrections from a user reply.
+ * Extracts updated fields based on what the user typed.
+ */
+export async function parseCorrections(
+  ai: Ai,
+  userText: string,
+  currentEvent: FarwhyEvent
+): Promise<Partial<FarwhyEvent>> {
+  const systemPrompt = `
+You are an event data editor. A user is providing a correction for an existing concert event.
+Current event details:
+${JSON.stringify(currentEvent, null, 2)}
+
+Your task is to extract only the fields the user wants to change and return them as a JSON object.
+Valid fields: title, date (YYYY-MM-DD), venue (farewell/howdy), event_time, price, description, age_restriction.
+
+RULES:
+- If the user says "it's at howdy", return {"venue": "howdy"}
+- If the user says "date is actually June 15", return {"date": "2026-06-15"}
+- If they change performers, return {"performers": "[\"New Band 1\", \"New Band 2\"]"} (JSON array string)
+- Output ONLY raw JSON. No markdown fences.
+`.trim();
+
+  try {
+    const aiResult: any = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userText }
+      ],
+      max_tokens: 256,
+      temperature: 0
+    });
+
+    const rawResult = aiResult.response || aiResult.result || aiResult.description || '';
+    return safeParseJson<Partial<FarwhyEvent>>(rawResult) ?? {};
+  } catch (err) {
+    console.error('[OCR] Failed to parse corrections:', err);
+    return {};
+  }
 }

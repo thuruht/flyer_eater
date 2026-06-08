@@ -25,7 +25,8 @@ function applyAutoPopulationRules(e: Partial<FarwhyEvent>): FarwhyEvent {
     event_type: e.event_type ?? 'music',
     performers: e.performers ?? '[]',
     tags: e.tags ?? '[]',
-    external_links: e.external_links ?? '{}'
+    external_links: e.external_links ?? '{}',
+    slack_ts: e.slack_ts
   };
 }
 
@@ -79,8 +80,8 @@ export async function insertEvent(env: Env, event: FarwhyEvent): Promise<string>
     INSERT INTO events (
       id, title, date, venue, ticket_url, flyer_image_url, description,
       age_restriction, event_time, price, capacity, status, is_featured,
-      performers, tags, external_links, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      event_type, performers, tags, external_links, slack_ts, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `).bind(
     event.id,
     event.title,
@@ -95,10 +96,47 @@ export async function insertEvent(env: Env, event: FarwhyEvent): Promise<string>
     event.capacity ?? null,
     event.status,
     event.is_featured ? 1 : 0,
+    event.event_type,
     event.performers,
     event.tags,
-    event.external_links
+    event.external_links,
+    event.slack_ts ?? null
   ).run();
 
   return event.id;
+}
+
+export async function getAllEvents(env: Env): Promise<FarwhyEvent[]> {
+  const { results } = await env.DB.prepare(`
+    SELECT * FROM events ORDER BY date DESC
+  `).all<FarwhyEvent>();
+  return results;
+}
+
+export async function getEventBySlackTs(env: Env, slackTs: string): Promise<FarwhyEvent | null> {
+  // We need to store slack_ts in the DB to make this work efficiently.
+  // For now, let's assume we might need to add that column or search by metadata if available.
+  // Actually, let's add a slack_ts column to the events table if it doesn't exist.
+  const result = await env.DB.prepare(`
+    SELECT * FROM events WHERE slack_ts = ? LIMIT 1
+  `).bind(slackTs).first<FarwhyEvent>();
+  return result;
+}
+
+export async function updateEvent(env: Env, id: string, updates: Partial<FarwhyEvent>): Promise<void> {
+  const keys = Object.keys(updates);
+  if (keys.length === 0) return;
+
+  const setClause = keys.map(k => `${k} = ?`).join(', ');
+  const values = Object.values(updates);
+
+  await env.DB.prepare(`
+    UPDATE events SET ${setClause}, updated_at = datetime('now') WHERE id = ?
+  `).bind(...values, id).run();
+}
+
+export async function deleteEvent(env: Env, id: string): Promise<void> {
+  await env.DB.prepare(`
+    DELETE FROM events WHERE id = ?
+  `).bind(id).run();
 }

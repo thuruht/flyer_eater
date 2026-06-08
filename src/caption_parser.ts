@@ -46,27 +46,32 @@ function formatDate(d: Date): string {
 function extractDate(text: string): string | null {
   const t = text.toLowerCase();
 
-  // ISO-ish: 2026-06-14, 2026/06/14
-  const isoMatch = text.match(/\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b/);
+  // 1. ISO-ish or dots: 2026-06-14, 2026/06/14, 2026.06.14
+  const isoMatch = text.match(/\b(20\d{2})[\/\.\-](0?[1-9]|1[0-2])[\/\.\-](0?[1-9]|[12]\d|3[01])\b/);
   if (isoMatch) {
     const [, y, m, d] = isoMatch;
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
 
-  // US numeric: 6/14, 06/14, 6/14/26, 06/14/2026
-  const usMatch = text.match(/\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])(?:\/(20\d{2}|\d{2}))?\b/);
+  // 2. US numeric: 6/14, 06/14, 6.14.26, 06-14-2026, 06.18. (trailing dot)
+  // We allow / . - or even spaces as separators.
+  // The year part is optional (2 or 4 digits).
+  const usMatch = text.match(/\b(0?[1-9]|1[0-2])[\/\.\-\s](0?[1-9]|[12]\d|3[01])(?:[\/\.\-\s](20\d{2}|\d{2}))?\.?\b/);
   if (usMatch) {
     const month = parseInt(usMatch[1], 10) - 1;
     const day = parseInt(usMatch[2], 10);
-    if (usMatch[3]) {
-      let year = parseInt(usMatch[3], 10);
-      if (year < 100) year += 2000;
-      return formatDate(new Date(year, month, day));
+    // Ensure day is valid for month (loose check)
+    if (day > 0 && day <= 31) {
+      if (usMatch[3]) {
+        let year = parseInt(usMatch[3], 10);
+        if (year < 100) year += 2000;
+        return formatDate(new Date(year, month, day));
+      }
+      return resolveNearestDate(month, day);
     }
-    return resolveNearestDate(month, day);
   }
 
-  // Named month: "Jan 15", "January 15th", "15 Jan", "Jan 15, 2026"
+  // 3. Named month: "Jan 15", "January 15th", "15 Jan", "Jan 15, 2026"
   const namedMonths = Object.keys(MONTH_MAP).join('|');
   const namedMatch = text.match(
     new RegExp(`\\b(${namedMonths})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:[,\\s]+(20\\d{2}))?\\b`, 'i')
@@ -80,7 +85,7 @@ function extractDate(text: string): string | null {
     return resolveNearestDate(month, day);
   }
 
-  // Reverse: "15 Jan", "15th of January"
+  // 4. Reverse: "15 Jan", "15th of January"
   const reverseMatch = text.match(
     new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${namedMonths})\\.?(?:[,\\s]+(20\\d{2}))?\\b`, 'i')
   );
@@ -93,12 +98,13 @@ function extractDate(text: string): string | null {
     return resolveNearestDate(month, day);
   }
 
-  // Relative: "tomorrow", "tonight"
+  // 5. Relative: "tomorrow", "tonight"
   if (/\b(tomorrow)\b/i.test(t)) {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     return formatDate(d);
   }
+
   if (/\b(tonight|today)\b/i.test(t)) {
     return formatDate(new Date());
   }
