@@ -20,16 +20,14 @@
     {
       "binding": "DB",
       "database_name": "farewell-db",
-      "database_id": "76dc7b30-005a-4268-afa0-10b2fe242253",
-      "remote": true
+      "database_id": "76dc7b30-005a-4268-afa0-10b2fe242253"
     }
   ],
 
   "r2_buckets": [
     {
       "binding": "IMAGES",
-      "bucket_name": "fwhy-images",
-      "remote": true
+      "bucket_name": "fwhy-images"
     }
   ],
 

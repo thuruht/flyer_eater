@@ -29,28 +29,49 @@ function applyAutoPopulationRules(e: Partial<FarwhyEvent>): FarwhyEvent {
   };
 }
 
-export function buildEventFromVLM(
-  extract: VLMExtract,
+export function buildEvent(
+  captionExtract: Partial<VLMExtract>,
+  vlmExtract: Partial<VLMExtract>,
   venue: 'farewell' | 'howdy',
   flyerImageUrl: string
-): FarwhyEvent {
+): { event: FarwhyEvent, warnings: string[] } {
+  const warnings: string[] = [];
+
+  // Merge logic: caption > VLM > default
+  const title = captionExtract.title ?? vlmExtract.title;
+  if (!title) warnings.push('Title defaulted to TBA');
+
+  const date = captionExtract.date ?? vlmExtract.date;
+  if (!date) warnings.push('Date defaulted to today');
+
+  const price = captionExtract.price ?? vlmExtract.price;
+  const event_time = captionExtract.event_time ?? vlmExtract.event_time;
+  const description = captionExtract.description ?? vlmExtract.description;
+  
+  // Merge performers and tags: prefer caption, fallback to VLM
+  let performers = captionExtract.performers;
+  if (!performers || performers.length === 0) performers = vlmExtract.performers;
+
+  let tags = captionExtract.tags;
+  if (!tags || tags.length === 0) tags = vlmExtract.tags;
+
   const partial: Partial<FarwhyEvent> = {
     venue,
-    title: extract.title ?? undefined,
-    date: extract.date ?? undefined,
-    event_time: extract.event_time ?? undefined,
-    price: extract.price ?? undefined,
-    description: extract.description ?? undefined,
+    title: title ?? undefined,
+    date: date ?? undefined,
+    event_time: event_time ?? undefined,
+    price: price ?? undefined,
+    description: description ?? undefined,
     flyer_image_url: flyerImageUrl,
-    performers: extract.performers?.length
-      ? JSON.stringify(extract.performers)
-      : '[]',
-    tags: extract.tags?.length
-      ? JSON.stringify(extract.tags)
-      : '[]',
+    performers: performers?.length ? JSON.stringify(performers) : '[]',
+    tags: tags?.length ? JSON.stringify(tags) : '[]',
     external_links: '{}'
   };
-  return applyAutoPopulationRules(partial);
+
+  return {
+    event: applyAutoPopulationRules(partial),
+    warnings
+  };
 }
 
 export async function insertEvent(env: Env, event: FarwhyEvent): Promise<string> {

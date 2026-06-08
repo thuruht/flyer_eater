@@ -4,9 +4,8 @@ import {
 } from 'slack-cloudflare-workers';
 import type { Env, StagedEvent } from './types';
 import { detectVenue, parseEmbargoTimestamp } from './slack';
-import { extractEventData } from './ocr';
 import { uploadFlyerToR2 } from './storage';
-import { buildEventFromVLM, insertEvent } from './db';
+import { buildEvent, insertEvent } from './db';
 
 export default {
   // ── Fetch handler: Slack webhook receiver ─────────────────────────
@@ -51,22 +50,35 @@ export default {
           file.name ?? 'flyer.jpg'
         );
 
-        // 3. Run vision AI with caption as context hint
-        const extract = await extractEventData(
-          env.AI, imageBuffer, caption, venueFromCaption
-        );
+        // 3. Parse caption first
+        const { parseCaption } = await import('./caption_parser');
+        const captionData = parseCaption(caption);
+        console.log('[flyer-eater] Caption extracted:', JSON.stringify(captionData));
 
-        // 4. Resolve venue: caption text > VLM hint > default 'farewell'
+        // 4. Run vision AI step 1 (Transcription)
+        const { transcribeFlyer, parseTranscription } = await import('./ocr');
+        const ocrText = await transcribeFlyer(env.AI, imageBuffer);
+        console.log('[flyer-eater] OCR text:', ocrText);
+
+        // 5. Run text LLM step 2 (Structured extraction)
+        const vlmData = await parseTranscription(env.AI, ocrText, caption, venueFromCaption);
+        console.log('[flyer-eater] VLM extracted:', JSON.stringify(vlmData));
+
+        // 6. Resolve venue: caption text > VLM hint > default 'farewell'
         const venue: 'farewell' | 'howdy' =
           venueFromCaption
-          ?? (extract.venue_hint === 'howdy' ? 'howdy' : 'farewell');
+          ?? (vlmData.venue_hint === 'howdy' ? 'howdy' : 'farewell');
 
-        // 5. Build the complete event object (applies auto-population rules)
-        const event = buildEventFromVLM(extract, venue, imageUrl);
+        // 7. Merge caption and VLM data
+        const { event, warnings } = buildEvent(captionData, vlmData, venue, imageUrl);
+        console.log('[flyer-eater] Final event:', JSON.stringify(event));
 
-        // 6. Embargo check
+        // 8. Embargo check
         const announceAfter = embargoTs
-          ?? (extract.announce_after ? Math.floor(new Date(extract.announce_after).getTime() / 1000) : null);
+          ?? (vlmData.announce_after ? Math.floor(new Date(vlmData.announce_after).getTime() / 1000) : null);
+
+        const statusIcon = warnings.length > 0 ? '⚠️' : '✅';
+        const warningMsg = warnings.length > 0 ? `\n_Warning: ${warnings.join(', ')}_` : '';
 
         if (announceAfter && announceAfter > now) {
           // Stage in KV — cron will publish it later
@@ -84,7 +96,7 @@ export default {
           await context.client.chat.postMessage({
             channel: payload.channel,
             thread_ts: payload.ts,
-            text: `⏳ Flyer received and staged. Will publish to farewellcafe.com after <!date^${announceAfter}^{date_short_pretty} at {time}|${new Date(announceAfter * 1000).toISOString()}>.`
+            text: `${statusIcon} Flyer received and staged. Will publish to farewellcafe.com after <!date^${announceAfter}^{date_short_pretty} at {time}|${new Date(announceAfter * 1000).toISOString()}>.${warningMsg}`
           });
 
         } else {
@@ -93,7 +105,7 @@ export default {
           await context.client.chat.postMessage({
             channel: payload.channel,
             thread_ts: payload.ts,
-            text: `✅ *${event.title}* added to farewellcafe.com\nVenue: ${event.venue} | Date: ${event.date} | Price: ${event.price ?? 'TBD'}\nID: \`${newId}\``
+            text: `${statusIcon} *${event.title}* added to farewellcafe.com\nVenue: ${event.venue} | Date: ${event.date} | Price: ${event.price ?? 'TBD'}\nID: \`${newId}\`${warningMsg}`
           });
         }
       });
