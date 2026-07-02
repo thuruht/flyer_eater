@@ -1,11 +1,15 @@
 import type { Env } from './types';
 
+function calendarKeyPrefix(venue: 'farewell' | 'howdy', year: number, month: number): string {
+  return `calendar_text_${venue}_${year}_${month}_`;
+}
+
 /**
  * Retrieves the OCR'd text of the relevant venue calendar from KV.
- * If not found, it returns null. 
- * 
- * Future improvement: If not found, we could trigger an OCR of the image
- * if we have a way to access the image buffer.
+ * Multiple calendar images may have been posted for the same venue/month
+ * (e.g. a split photo, or a later corrected re-shoot); all of them are
+ * stored under distinct keys and joined here so nothing is silently lost.
+ * Returns null if no calendar text has been stored for this venue/month.
  */
 export async function getCalendarText(
   env: Env,
@@ -13,21 +17,32 @@ export async function getCalendarText(
   year: number,
   month: number
 ): Promise<string | null> {
-  const key = `calendar_text_${venue}_${year}_${month}`;
-  return await env.STAGING_KV.get(key);
+  const prefix = calendarKeyPrefix(venue, year, month);
+  const list = await env.STAGING_KV.list({ prefix });
+  if (list.keys.length === 0) return null;
+
+  const texts = await Promise.all(
+    list.keys.map(k => env.STAGING_KV.get(k.name))
+  );
+  const nonEmpty = texts.filter((t): t is string => !!t);
+  if (nonEmpty.length === 0) return null;
+
+  return nonEmpty.join('\n\n---\n\n');
 }
 
 /**
- * Stores OCR'd calendar text in KV.
+ * Stores OCR'd calendar text in KV under a per-post key so a second
+ * calendar image for the same venue/month doesn't overwrite the first.
  */
 export async function storeCalendarText(
   env: Env,
   venue: 'farewell' | 'howdy',
   year: number,
   month: number,
-  text: string
+  text: string,
+  timestamp: number = Date.now()
 ): Promise<void> {
-  const key = `calendar_text_${venue}_${year}_${month}`;
+  const key = `${calendarKeyPrefix(venue, year, month)}${timestamp}`;
   // Store for at least 60 days to cover the month and any late lookups
   await env.STAGING_KV.put(key, text, { expirationTtl: 60 * 24 * 60 * 60 });
 }

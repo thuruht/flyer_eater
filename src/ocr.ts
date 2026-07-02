@@ -27,7 +27,9 @@ If you cannot read anything, output "NO_TEXT_FOUND".
       }
     );
 
-    return (response as any).description ?? '';
+    // This model's output is { response: string }, not { description: string }
+    // (description is only present on image-captioning models like llava).
+    return (response as any).response ?? (response as any).description ?? '';
   } catch (err) {
     console.error('[OCR] Failed to transcribe image:', err);
     return '';
@@ -46,7 +48,8 @@ export async function parseTranscription(
   venueHint: 'farewell' | 'howdy' | null,
   calendarText: string | null = null
 ): Promise<Partial<VLMExtract>> {
-  if (!ocrText || ocrText === 'NO_TEXT_FOUND') {
+  const hasOcrText = !!ocrText && ocrText !== 'NO_TEXT_FOUND';
+  if (!hasOcrText && !caption && !calendarText) {
     return {};
   }
 
@@ -63,8 +66,10 @@ OFFICIAL VENUE CALENDAR (The HIGHEST source of truth):
 """
 ${calendarText}
 """
-If any band names or dates in the flyer match an entry in this calendar, 
+If any band names or dates in the flyer match an entry in this calendar,
 USE THE CALENDAR DATA as the primary source of truth for spelling, dates, and lineups.
+If the RAW OCR TEXT below is empty or unreadable, find the entry in this calendar
+matching the date/venue implied by the SLACK CAPTION and extract the event from there instead.
 ` : ''}
 
 Return ONLY a valid JSON object with these keys. If a value cannot be determined, use null.
@@ -84,8 +89,9 @@ RULES:
 - "pwyc", "pay what you can", "sliding scale" -> normalize to "PWYC"
 - Performers array: include city/state if visible, e.g. "Band (KC)"
 - Title: If there isn't a clear show title, use the headline band or join the top 3 bands with " / ".
-- Date MUST be YYYY-MM-DD. 
+- Date MUST be YYYY-MM-DD and MUST be the actual event date, not an announcement/embargo date.
 - PRIORITY: If the SLACK CAPTION contains a date (like "06.18.26"), USE THAT DATE instead of guessing from the flyer text.
+- If the caption or flyer text mentions "hold until", "do not announce until", or "embargo:" then extract that as announce_after, NOT as the event date.
 - If no year is provided, assume the nearest upcoming occurrence from today.
 - Output ONLY raw JSON. No markdown fences.
   `.trim();
@@ -97,7 +103,7 @@ ${venueHint ? `VENUE ALREADY IDENTIFIED FROM CAPTION: ${venueHint}` : ''}
 
 RAW OCR TEXT FROM FLYER:
 """
-${ocrText}
+${hasOcrText ? ocrText : 'NO_TEXT_FOUND — flyer OCR failed or was unreadable. Rely on the calendar/caption above.'}
 """
   `.trim();
 
@@ -131,6 +137,10 @@ ${ocrText}
   return parsed;
 }
 
+// Corrections may include announce_after (embargo timestamp), which lives
+// on StagedEvent, not FarwhyEvent — it's not a D1 column.
+export type Correction = Partial<FarwhyEvent> & { announce_after?: string | null };
+
 /**
  * Step 3: Parse natural language corrections from a user reply.
  * Extracts updated fields based on what the user typed.
@@ -139,19 +149,23 @@ export async function parseCorrections(
   ai: Ai,
   userText: string,
   currentEvent: FarwhyEvent
-): Promise<Partial<FarwhyEvent>> {
+): Promise<Correction> {
   const systemPrompt = `
 You are an event data editor. A user is providing a correction for an existing concert event.
 Current event details:
 ${JSON.stringify(currentEvent, null, 2)}
 
 Your task is to extract only the fields the user wants to change and return them as a JSON object.
-Valid fields: title, date (YYYY-MM-DD), venue (farewell/howdy), event_time, price, description, age_restriction.
+Valid fields: title, date (YYYY-MM-DD), venue (farewell/howdy), event_time, price, description,
+age_restriction, announce_after (ISO date string — use this ONLY for "hold until X" /
+"do not announce until X" / "embargo: X" style corrections, NEVER for the event date itself).
 
 RULES:
 - If the user says "it's at howdy", return {"venue": "howdy"}
 - If the user says "date is actually June 15", return {"date": "2026-06-15"}
+- If the user says "hold until July 20" or "don't announce until Aug 1", return {"announce_after": "2026-07-20"}
 - If they change performers, return {"performers": "[\"New Band 1\", \"New Band 2\"]"} (JSON array string)
+- If nothing in the message is a correction, return {}
 - Output ONLY raw JSON. No markdown fences.
 `.trim();
 
@@ -166,7 +180,7 @@ RULES:
     });
 
     const rawResult = aiResult.response || aiResult.result || aiResult.description || '';
-    return safeParseJson<Partial<FarwhyEvent>>(rawResult) ?? {};
+    return safeParseJson<Correction>(rawResult) ?? {};
   } catch (err) {
     console.error('[OCR] Failed to parse corrections:', err);
     return {};

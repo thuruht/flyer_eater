@@ -1,3 +1,16 @@
+/**
+ * Strip embargo/command phrases from caption text so downstream extraction
+ * (caption parser, VLM prompt) never sees them. Otherwise "hold until Jan 15"
+ * leaks into performer/title/date extraction.
+ */
+export function removeEmbargoText(text: string): string {
+  return (text ?? '')
+    .replace(/do not announce until\s+[^\.\n]+\.?/gi, '')
+    .replace(/embargo\s*:\s*[^\.\n]+\.?/gi, '')
+    .replace(/hold until\s+[^\.\n]+\.?/gi, '')
+    .trim();
+}
+
 export function detectVenue(text: string): 'farewell' | 'howdy' | null {
   // Case-insensitive search. Check "howdy" first — it is the less common
   // default and must not be masked by a partial "farewell" match.

@@ -189,16 +189,25 @@ const NON_PERFORMER_TOKENS = new Set([
   'november', 'december', 'all', 'ages', '21+'
 ]);
 
+const REVERSE_DATE_STRIP_RE = new RegExp(
+  `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${Object.keys(MONTH_MAP).join('|')})\\w*(?:\\s*,?\\s*\\d{4})?\\b`,
+  'gi'
+);
+
 function extractPerformers(text: string): string[] | null {
   // Look for segments separated by +, /, w/, "with", ","
   // after removing known date/price/time/venue fragments
 
-  // Strip out date-like fragments, price, time, venue mentions
+  // Strip embargo/command phrases so "hold until Jan 15" doesn't become a band name
   let cleaned = text
+    .replace(/do not announce until\s*[^\.\n]*/gi, '')
+    .replace(/hold until\s*[^\.\n]*/gi, '')
+    .replace(/embargo\s*:?\s*[^\.\n]*/gi, '')
+    // Strip out date-like fragments, price, time, venue mentions
     .replace(/\b(20\d{2})[\/\.\-](0?[1-9]|1[0-2])[\/\.\-](0?[1-9]|[12]\d|3[01])\b/g, '')
     .replace(/\b(0?[1-9]|1[0-2])[\/\.\-\s](0?[1-9]|[12]\d|3[01])(?:[\/\.\-\s](20\d{2}|\d{2}))?\.?\b/g, '')
     .replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{4})?\b/gi, '')
-    .replace(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(${Object.keys(MONTH_MAP).join('|')})\w*(?:\s*,?\s*\d{4})?\b/gi, '')
+    .replace(REVERSE_DATE_STRIP_RE, '')
     .replace(/\b(?:tonight|tomorrow|today|this\s+\w+day)\b/gi, '')
     .replace(/\$\s*\d+/g, '')
     .replace(/\b(?:p\.?w\.?y\.?c\.?|pay what you can|sliding scale|free|donation)\b/gi, '')

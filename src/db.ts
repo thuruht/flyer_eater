@@ -126,12 +126,21 @@ export async function getEventBySlackTs(env: Env, slackTs: string): Promise<Farw
   return result;
 }
 
+// Fields an LLM-driven correction (staff thread reply, calendar validation)
+// is allowed to touch. Anything else returned by an LLM is dropped here
+// rather than interpolated into the SQL SET clause as a column name.
+export const CORRECTABLE_FIELDS = new Set<keyof FarwhyEvent>([
+  'title', 'date', 'venue', 'event_time', 'price', 'description',
+  'age_restriction', 'performers', 'tags'
+]);
+
 export async function updateEvent(env: Env, id: string, updates: Partial<FarwhyEvent>): Promise<void> {
-  const keys = Object.keys(updates);
+  const keys = (Object.keys(updates) as (keyof FarwhyEvent)[])
+    .filter(k => CORRECTABLE_FIELDS.has(k));
   if (keys.length === 0) return;
 
   const setClause = keys.map(k => `${k} = ?`).join(', ');
-  const values = Object.values(updates);
+  const values = keys.map(k => updates[k]);
 
   await env.DB.prepare(`
     UPDATE events SET ${setClause}, updated_at = datetime('now') WHERE id = ?

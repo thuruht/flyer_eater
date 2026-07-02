@@ -3,7 +3,7 @@ import {
   isPostedMessageEvent
 } from 'slack-cloudflare-workers';
 import type { Env, StagedEvent, FarwhyEvent } from './types';
-import { detectVenue, parseEmbargoTimestamp } from './slack';
+import { detectVenue, parseEmbargoTimestamp, removeEmbargoText } from './slack';
 import { uploadFlyerToR2 } from './storage';
 import { buildEvent, insertEvent } from './db';
 
@@ -36,11 +36,17 @@ export default {
         // Reject non-post events (edits, etc. handled by SlackApp defaults or above)
         if (!isPostedMessageEvent(payload)) return;
 
+        // Only process messages that contain image file attachments
+        const files = (payload as any).files ?? [];
+        const imageFiles = files.filter(
+          (f: any) => f.mimetype?.startsWith('image/')
+        );
+
         // ── REPLY COMMANDS & CORRECTIONS BRANCH ───────────────────────
         if ((payload as any).thread_ts && (payload as any).thread_ts !== payload.ts) {
           const threadTs = (payload as any).thread_ts;
           const text = (payload.text ?? '').trim().toLowerCase();
-          const { getEventBySlackTs, updateEvent, insertEvent } = await import('./db');
+          const { getEventBySlackTs, updateEvent, insertEvent, deleteEvent, CORRECTABLE_FIELDS } = await import('./db');
 
           // Command: release
           if (text === 'release') {
@@ -72,130 +78,228 @@ export default {
             }
           }
 
-          // Fallback: AI Correction
-          const { parseCorrections } = await import('./ocr');
-          const existingEvent = await getEventBySlackTs(env, threadTs);
-          if (existingEvent) {
-            const corrections = await parseCorrections(env.AI, payload.text ?? '', existingEvent);
-            if (Object.keys(corrections).length > 0) {
-              await updateEvent(env, existingEvent.id, corrections);
-              await context.client.chat.postMessage({
-                channel: payload.channel,
-                thread_ts: payload.ts,
-                text: `✅ Event updated with your corrections! Updated fields: ${Object.keys(corrections).join(', ')}`
-              });
-              return;
-            }
-          }
+           // Fallback: AI Correction
+           try {
+             const { parseCorrections } = await import('./ocr');
+
+             const existingEvent = await getEventBySlackTs(env, threadTs);
+
+             // Not published yet — it may still be embargoed in KV.
+             let stagedKey: string | null = null;
+             let stagedEvent: StagedEvent | null = null;
+             if (!existingEvent) {
+               const list = await env.STAGING_KV.list({ prefix: 'embargo_' });
+               for (const k of list.keys) {
+                 const raw = await env.STAGING_KV.get(k.name);
+                 if (!raw) continue;
+                 const parsedStaged: StagedEvent = JSON.parse(raw);
+                 if (parsedStaged.slackTs === threadTs) {
+                   stagedKey = k.name;
+                   stagedEvent = parsedStaged;
+                   break;
+                 }
+               }
+             }
+
+             const targetEvent = existingEvent ?? stagedEvent?.eventData ?? null;
+
+             // If this reply also has a new flyer image attached, don't swallow
+             // it on a "no correction found" outcome — let it fall through to
+             // be processed as a (re-)submission below instead.
+             if (!targetEvent && imageFiles.length === 0) {
+               await context.client.chat.postMessage({
+                 channel: payload.channel,
+                 thread_ts: payload.ts,
+                 text: `❓ Couldn't find an event for this thread — it may still be embargoed or was never successfully added.`
+               });
+               return;
+             }
+
+             if (targetEvent) {
+               const corrections = await parseCorrections(env.AI, payload.text ?? '', targetEvent);
+
+               const changedFields = Object.keys(corrections).filter(
+                 k => k === 'announce_after' || CORRECTABLE_FIELDS.has(k as keyof FarwhyEvent)
+               );
+
+               if (changedFields.length === 0) {
+                 if (imageFiles.length === 0) {
+                   await context.client.chat.postMessage({
+                     channel: payload.channel,
+                     thread_ts: payload.ts,
+                     text: `❓ Didn't catch a correction in that reply. Try something like "date is actually July 24" or "it's at howdy."`
+                   });
+                   return;
+                 }
+                 // Has an image attached — fall through to flyer processing.
+               } else {
+                 // Log correction details for observability
+                 console.log(`[flyer-eater] AI Correction: slack_ts=${threadTs} fields=${changedFields.join(', ')}`);
+                 for (const field of changedFields) {
+                   console.log(`[flyer-eater] Correction detail: ${field}: ${JSON.stringify((targetEvent as any)[field])} -> ${JSON.stringify((corrections as any)[field])}`);
+                 }
+
+                 const announceAfterCorrection = corrections.announce_after
+                   ? Math.floor(new Date(corrections.announce_after).getTime() / 1000)
+                   : null;
+                 const fieldUpdates: Partial<FarwhyEvent> = {};
+                 for (const field of changedFields) {
+                   if (field === 'announce_after') continue;
+                   (fieldUpdates as any)[field] = (corrections as any)[field];
+                 }
+
+                 if (stagedEvent && stagedKey) {
+                   // Still embargoed — patch the staged copy in KV.
+                   const updatedStaged: StagedEvent = {
+                     ...stagedEvent,
+                     eventData: { ...stagedEvent.eventData, ...fieldUpdates },
+                     announceAfter: announceAfterCorrection ?? stagedEvent.announceAfter
+                   };
+                   const ttl = Math.max(updatedStaged.announceAfter - Math.floor(Date.now() / 1000) + 86400, 86400);
+                   await env.STAGING_KV.put(stagedKey, JSON.stringify(updatedStaged), { expirationTtl: ttl });
+                 } else if (existingEvent) {
+                   if (Object.keys(fieldUpdates).length > 0) {
+                     await updateEvent(env, existingEvent.id, fieldUpdates);
+                   }
+                   if (announceAfterCorrection && announceAfterCorrection > Math.floor(Date.now() / 1000)) {
+                     // Newly embargoed — move it back out of D1 into staged KV.
+                     await deleteEvent(env, existingEvent.id);
+                     const staged: StagedEvent = {
+                       eventData: { ...existingEvent, ...fieldUpdates },
+                       r2Key: '',
+                       slackTs: threadTs,
+                       announceAfter: announceAfterCorrection
+                     };
+                     const ttl = Math.max(announceAfterCorrection - Math.floor(Date.now() / 1000) + 86400, 86400);
+                     await env.STAGING_KV.put(`embargo_${threadTs}`, JSON.stringify(staged), { expirationTtl: ttl });
+                   }
+                 }
+
+                 await context.client.chat.postMessage({
+                   channel: payload.channel,
+                   thread_ts: payload.ts,
+                   text: `✅ Event updated with your corrections! Updated fields: ${changedFields.join(', ')}`
+                 });
+                 return;
+               }
+             }
+           } catch (err) {
+             console.error(`[flyer-eater] Failed to apply correction for thread ${threadTs}:`, err);
+             await context.client.chat.postMessage({
+               channel: payload.channel,
+               thread_ts: payload.ts,
+               text: `⚠️ Something went wrong applying that correction — check the logs.`
+             });
+             return;
+           }
         }
         // ──────────────────────────────────────────────────────────────
 
-        // Only process messages that contain image file attachments
-        const files = (payload as any).files ?? [];
-        const imageFiles = files.filter(
-          (f: any) => f.mimetype?.startsWith('image/')
-        );
         if (imageFiles.length === 0) return;
 
         const caption = payload.text ?? '';
+        const cleanCaption = removeEmbargoText(caption);
         const venueFromCaption = detectVenue(caption);
         const embargoTs = parseEmbargoTimestamp(caption);
         const now = Math.floor(Date.now() / 1000);
 
         const { parseCaption } = await import('./caption_parser');
-        const captionData = parseCaption(caption);
-        console.log('[flyer-eater] Caption extracted:', JSON.stringify(captionData));
+         const captionData = parseCaption(cleanCaption);
+         console.log('[flyer-eater] [STAGE: CAPTION_PARSING] Result:', JSON.stringify(captionData));
 
-        const { transcribeFlyer, parseTranscription } = await import('./ocr');
-        const { getCalendarText, storeCalendarText, parseCalendarFilename } = await import('./calendar');
-        const { validateEventsAgainstCalendars } = await import('./validation');
+         const { transcribeFlyer, parseTranscription } = await import('./ocr');
+         const { getCalendarText, storeCalendarText, parseCalendarFilename } = await import('./calendar');
+         const { validateEventsAgainstCalendars } = await import('./validation');
 
-        // BATCH PROCESS ALL IMAGES
-        for (const file of imageFiles) {
-          try {
-            // 1. Download the private Slack file
-            const dlResp = await fetch(
-              file.url_private_download ?? file.url_private,
-              { headers: { Authorization: `Bearer ${context.botToken}` } }
-            );
-            if (!dlResp.ok) {
-              console.error(`[flyer-eater] Failed to download file ${file.name}:`, dlResp.status);
-              continue;
-            }
-            const imageBuffer = await dlResp.arrayBuffer();
+         // BATCH PROCESS ALL IMAGES
+         for (const file of imageFiles) {
+           try {
+             // 1. Download the private Slack file
+             const dlResp = await fetch(
+               file.url_private_download ?? file.url_private,
+               { headers: { Authorization: `Bearer ${context.botToken}` } }
+             );
+             if (!dlResp.ok) {
+               console.error(`[flyer-eater] Failed to download file ${file.name}:`, dlResp.status);
+               continue;
+             }
+             const imageBuffer = await dlResp.arrayBuffer();
 
-            // ── CALENDAR INGESTION BRANCH ──────────────────────────────
-            const isCalendar = file.name?.toLowerCase().includes('bw_cal') || caption.toLowerCase().includes('calendar');
-            if (isCalendar) {
-              const ocrText = await transcribeFlyer(env.AI, imageBuffer);
-              let venueKey: 'farewell' | 'howdy' = venueFromCaption ?? 'farewell';
-              let year = new Date().getFullYear();
-              let month = new Date().getMonth() + 1;
+             // ── CALENDAR INGESTION BRANCH ──────────────────────────────
+             const isCalendar = file.name?.toLowerCase().includes('bw_cal') || caption.toLowerCase().includes('calendar');
+             if (isCalendar) {
+               const ocrText = await transcribeFlyer(env.AI, imageBuffer);
+               console.log(`[flyer-eater] [STAGE: CALENDAR_OCR] file=${file.name} text_len=${ocrText.length}`);
+               let venueKey: 'farewell' | 'howdy' = venueFromCaption ?? 'farewell';
+               let year = new Date().getFullYear();
+               let month = new Date().getMonth() + 1;
 
-              // Try to get metadata from filename
-              if (file.name) {
-                try {
-                  const meta = parseCalendarFilename(file.name);
-                  venueKey = meta.venue;
-                  year = meta.year;
-                  month = meta.month;
-                } catch { /* fallback to defaults */ }
-              }
+               // Try to get metadata from filename
+               if (file.name) {
+                 try {
+                   const meta = parseCalendarFilename(file.name);
+                   venueKey = meta.venue;
+                   year = meta.year;
+                   month = meta.month;
+                 } catch { /* fallback to defaults */ }
+               }
 
-              await storeCalendarText(env, venueKey, year, month, ocrText);
-              
-              // IMMEDIATE VALIDATION
-              const correctionsCount = await validateEventsAgainstCalendars(env, venueKey, year, month);
-              const correctionsMsg = correctionsCount > 0 
-                ? `\n🔄 Automatically corrected ${correctionsCount} existing events based on this calendar.`
-                : '';
+               await storeCalendarText(env, venueKey, year, month, ocrText, file.timestamp ?? Date.now());
+               
+               // IMMEDIATE VALIDATION
+               const correctionsCount = await validateEventsAgainstCalendars(env, venueKey, year, month);
+               const correctionsMsg = correctionsCount > 0 
+                 ? `\n🔄 Automatically corrected ${correctionsCount} existing events based on this calendar.`
+                 : '';
 
-              await context.client.chat.postMessage({
-                channel: payload.channel,
-                thread_ts: payload.ts,
-                text: `📅 Official calendar for *${venueKey}* (${year}-${month}) has been ingested and will be used as the primary source of truth.${correctionsMsg}`
-              });
-              continue;
-            }
-            // ──────────────────────────────────────────────────────────
+               await context.client.chat.postMessage({
+                 channel: payload.channel,
+                 thread_ts: payload.ts,
+                 text: `📅 Official calendar for *${venueKey}* (${year}-${month}) has been ingested and will be used as the primary source of truth.${correctionsMsg}`
+               });
+               continue;
+             }
+             // ──────────────────────────────────────────────────────────
 
-            // ── FLYER PROCESSING BRANCH ────────────────────────────────
-            // 2. Upload image to R2 immediately
-            const { r2Key, imageUrl } = await uploadFlyerToR2(
-              env,
-              imageBuffer,
-              file.mimetype ?? 'image/jpeg',
-              file.name ?? 'flyer.jpg'
-            );
+             // ── FLYER PROCESSING BRANCH ────────────────────────────────
+             // 2. Upload image to R2 immediately
+             const { r2Key, imageUrl } = await uploadFlyerToR2(
+               env,
+               imageBuffer,
+               file.mimetype ?? 'image/jpeg',
+               file.name ?? 'flyer.jpg'
+             );
 
-            // 3. Run vision AI step 1 (Transcription)
-            const ocrText = await transcribeFlyer(env.AI, imageBuffer);
-            console.log('[flyer-eater] OCR text:', ocrText);
+             // 3. Run vision AI step 1 (Transcription)
+             const ocrText = await transcribeFlyer(env.AI, imageBuffer);
+             console.log(`[flyer-eater] [STAGE: FLYER_OCR] file=${file.name} text_len=${ocrText.length}`);
+             console.log('[flyer-eater] OCR text:', ocrText);
 
-            // 3.5 Get calendar data if available
-            // Use candidate date from caption or current date
-            const candidateDate = captionData.date ?? new Date().toISOString().split('T')[0];
-            const [cYear, cMonth] = candidateDate.split('-').map(Number);
-            
-            // Note: 'venue' might be overridden by VLM later, but we use caption/default for lookup
-            const lookupVenue = venueFromCaption ?? 'farewell';
-            const calendarText = await getCalendarText(env, lookupVenue, cYear, cMonth);
-            if (calendarText) {
-              console.log(`[flyer-eater] Found calendar truth for ${lookupVenue} ${cYear}-${cMonth}`);
-            }
+             // 3.5 Get calendar data if available
+             // Use candidate date from caption or current date
+             const candidateDate = captionData.date ?? new Date().toISOString().split('T')[0];
+             const [cYear, cMonth] = candidateDate.split('-').map(Number);
+             
+             // Note: 'venue' might be overridden by VLM later, but we use caption/default for lookup
+             const lookupVenue = venueFromCaption ?? 'farewell';
+             const calendarText = await getCalendarText(env, lookupVenue, cYear, cMonth);
+             if (calendarText) {
+               console.log(`[flyer-eater] [STAGE: CALENDAR_FOUND] venue=${lookupVenue} date=${cYear}-${cMonth}`);
+             }
 
-            // 4. Run text LLM step 2 (Structured extraction)
-            const vlmData = await parseTranscription(env.AI, ocrText, caption, venueFromCaption, calendarText);
-            console.log('[flyer-eater] VLM extracted:', JSON.stringify(vlmData));
+             // 4. Run text LLM step 2 (Structured extraction)
+             const vlmData = await parseTranscription(env.AI, ocrText, cleanCaption, venueFromCaption, calendarText);
+             console.log('[flyer-eater] [STAGE: VLM_EXTRACTION] Result:', JSON.stringify(vlmData));
 
-            // 5. Resolve final venue
-            const finalVenue: 'farewell' | 'howdy' =
-              venueFromCaption
-              ?? (vlmData.venue_hint === 'howdy' ? 'howdy' : 'farewell');
+             // 5. Resolve final venue
+             const finalVenue: 'farewell' | 'howdy' =
+               venueFromCaption
+               ?? (vlmData.venue_hint === 'howdy' ? 'howdy' : 'farewell');
 
-            // 6. Merge caption and VLM data
-            const { event, warnings } = buildEvent(captionData, vlmData, finalVenue, imageUrl);
-            console.log('[flyer-eater] Final event:', JSON.stringify(event));
+             // 6. Merge caption and VLM data
+             const { event, warnings } = buildEvent(captionData, vlmData, finalVenue, imageUrl);
+             console.log('[flyer-eater] [STAGE: MERGE] Result:', JSON.stringify(event));
+
 
             // 7. Embargo check
             const announceAfter = embargoTs
