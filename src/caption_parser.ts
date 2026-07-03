@@ -133,8 +133,16 @@ function extractPrice(text: string): string | null {
 
   // PWYC variants with optional minimum
   const pwycMatch = text.match(/\b(?:p\.?w\.?y\.?c\.?|pay what you can|sliding scale)\b/i);
+  const rangeMatch = text.match(/\$\s*(\d+)\s*-\s*(\d+)/);
   const dollarMatch = text.match(/\$\s*(\d+)/);
 
+  // A dollar amount printed on the flyer must always survive into the price
+  // field, even alongside PWYC — the range/figure is more useful than the
+  // PWYC label alone.
+  if (rangeMatch) {
+    const range = `$${rangeMatch[1]}-${rangeMatch[2]}`;
+    return pwycMatch ? `PWYC (${range})` : range;
+  }
   if (pwycMatch && dollarMatch) {
     return `PWYC / $${dollarMatch[1]} minimum`;
   }
@@ -209,6 +217,7 @@ function extractPerformers(text: string): string[] | null {
     .replace(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{4})?\b/gi, '')
     .replace(REVERSE_DATE_STRIP_RE, '')
     .replace(/\b(?:tonight|tomorrow|today|this\s+\w+day)\b/gi, '')
+    .replace(/\$\s*\d+\s*-\s*\d+/g, '')
     .replace(/\$\s*\d+/g, '')
     .replace(/\b(?:p\.?w\.?y\.?c\.?|pay what you can|sliding scale|free|donation)\b/gi, '')
     .replace(/\bdoors?\s*(?:at\s*)?\d{1,2}\s*(?:pm|am)?\s*[/,&]\s*(?:show|music)\s*(?:at\s*)?\d{1,2}\s*(?:pm|am)?\b/gi, '')

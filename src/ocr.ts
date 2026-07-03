@@ -86,7 +86,11 @@ Return ONLY a valid JSON object with these keys. If a value cannot be determined
 }
 
 RULES:
-- "pwyc", "pay what you can", "sliding scale" -> normalize to "PWYC"
+- "pwyc", "pay what you can", "sliding scale" -> normalize the label to "PWYC", but
+  a dollar amount printed on the flyer MUST always appear in the price field too —
+  it is more useful than the PWYC label alone. E.g. "$10-15 PWYC" -> "PWYC ($10-15)",
+  "PWYC, $5 min" -> "PWYC ($5 min)". Only output plain "PWYC" if no dollar figure
+  appears anywhere in the OCR text or caption.
 - Performers array: include city/state if visible, e.g. "Band (KC)"
 - Title: If there isn't a clear show title, use the headline band or join the top 3 bands with " / ".
 - Date MUST be YYYY-MM-DD and MUST be the actual event date, not an announcement/embargo date.

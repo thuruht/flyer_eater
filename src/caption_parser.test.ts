@@ -32,3 +32,31 @@ describe('parseCaption performer extraction — version/revision tokens', () => 
     expect(result.performers).toEqual(['Dry Rot', 'Gag']);
   });
 });
+
+describe('parseCaption price extraction — dollar amounts must survive', () => {
+  it('preserves a dollar range on its own', () => {
+    const result = parseCaption('Show at Farewell, $10-15');
+    expect(result.price).toBe('$10-15');
+  });
+
+  it('preserves a dollar range alongside PWYC', () => {
+    const result = parseCaption('Show at Farewell, $10-15 pwyc');
+    expect(result.price).toBe('PWYC ($10-15)');
+  });
+
+  it('still handles a single dollar minimum with PWYC (existing behavior)', () => {
+    const result = parseCaption('Show at Farewell, pwyc $5 minimum');
+    expect(result.price).toBe('PWYC / $5 minimum');
+  });
+
+  it('does not leak the range into performers when both are present', () => {
+    const result = parseCaption('Dry Rot + Gag, $10-15 pwyc, Jan 15 at Farewell');
+    expect(result.performers).toEqual(['Dry Rot', 'Gag']);
+  });
+
+  it('does not leak a range outside 1-12 into performers as a fake name', () => {
+    const result = parseCaption('Dry Rot + Gag, $20-25 pwyc, Jan 15 at Farewell');
+    expect(result.performers).toEqual(['Dry Rot', 'Gag']);
+    expect(result.price).toBe('PWYC ($20-25)');
+  });
+});
