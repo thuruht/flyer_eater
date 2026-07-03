@@ -118,9 +118,8 @@ ${hasOcrText ? ocrText : 'NO_TEXT_FOUND — flyer OCR failed or was unreadable. 
 
   let aiResult: any;
   try {
-    // We try to use a strong text model. If it fails, we fall back to another or return {}
-    // In Workers AI, the llama-3.1-8b-instruct model is a good default text model.
-    aiResult = await ai.run('@cf/meta/llama-3.1-8b-instruct', bodyPayload);
+    // In Workers AI, the llama-3.1-8b-instruct-fp8 model is a good default text model.
+    aiResult = await ai.run('@cf/meta/llama-3.1-8b-instruct-fp8', bodyPayload);
   } catch (err) {
     console.error('[OCR] Failed to parse transcription with AI:', err);
     return {};
@@ -170,7 +169,7 @@ RULES:
 `.trim();
 
   try {
-    const aiResult: any = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+    const aiResult: any = await ai.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userText }
