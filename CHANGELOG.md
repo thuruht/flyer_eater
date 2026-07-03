@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Extraction trust hierarchy: caption text (e.g. a stray "V2" or "UPDATE")
+  could override a correct, fuller lineup already read from the flyer by the
+  VLM. `buildEvent()` now prefers VLM output for `title`/`performers`/`price`/
+  `tags`/`description`; caption still wins for `date`/`venue`. Added a
+  plausibility guard that discards an uncorroborated single-performer caption
+  guess when the calendar doesn't back it up and the VLM found a fuller
+  lineup.
+- `extractPerformers()` now strips version/revision tokens (`v2`, `pt 2`,
+  `repost`, `update(d)`, `redo`, etc.) before splitting on delimiters, so they
+  never become fake performer names.
+- Dollar amounts printed on a flyer no longer get discarded in favor of a bare
+  "PWYC" — both the VLM prompt and `extractPrice()` now always preserve the
+  figure (e.g. `"PWYC ($10-15)"`). Fixed a related latent bug where a price
+  range outside 1-12 (e.g. `$20-25`) leaked its second number into the
+  performers list.
+- Migrated off `@cf/meta/llama-3.1-8b-instruct`, deprecated 2026-05-30. Every
+  call had been silently failing and returning `{}`, causing recent posts to
+  default to `title: TBA` / `price: TBD` and thread corrections to silently
+  no-op. Diagnosed via newly-enabled Workers Observability logs; switched to
+  `@cf/meta/llama-3.1-8b-instruct-fp8`.
+
+### Added
+
+- Workers Logs/observability enabled (`wrangler.jsonc`, 100% head sampling).
+- vitest test suite for `src/caption_parser.ts` and `src/db.ts` (16 tests).
+- `docs/PROMOTER_GUIDE.md` — plain-language guide for promoters/staff.
+
+### Changed
+
+- Upgraded wrangler 3.x → 4.107.0.
+
 ## [1.1.0] — 2026-07-02
 
 ### Added

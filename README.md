@@ -73,9 +73,20 @@ served at `/images/{r2Key}`.
 | `npm run dev` | `wrangler dev` — local dev server |
 | `npm run build` | `tsc --noEmit` — typecheck only |
 | `npm run deploy` | `wrangler deploy` — production deploy |
+| `npm test` | `vitest run` — unit tests |
 | `wrangler tail` | Inspect production logs |
 
-No tests, linter, or formatter are configured.
+Unit tests cover `src/caption_parser.ts` and `src/db.ts`. No linter/formatter
+is configured, and there's no coverage for `src/ocr.ts` (live AI binding) or
+the Slack webhook itself — verify prompt/model changes against the live
+Workers AI endpoint before deploying.
+
+## Observability
+
+Workers Logs is enabled (`wrangler.jsonc`, 100% head sampling), so
+`console.log`/`console.error` calls are persisted and queryable via the
+Cloudflare dashboard's Observability tab or `wrangler tail`, not just
+ephemeral per-request output.
 
 ## Bindings (wrangler.jsonc)
 
@@ -89,7 +100,9 @@ No tests, linter, or formatter are configured.
 ## AI models
 
 - **Vision (OCR)**: `@cf/meta/llama-3.2-11b-vision-instruct`
-- **Text extraction**: `@cf/meta/llama-3.1-8b-instruct`
+- **Text extraction**: `@cf/meta/llama-3.1-8b-instruct-fp8` (plain
+  `-instruct` was deprecated 2026-05-30; confirm a model is still listed in
+  `wrangler ai models` before relying on it)
 
 ## Environment secrets
 

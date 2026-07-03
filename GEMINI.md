@@ -10,7 +10,7 @@ stores them in the shared D1 `farewell-db` event database.
 The project is built as a **Cloudflare Worker** and leverages the following services:
 
 - **Workers AI**: Uses `@cf/meta/llama-3.2-11b-vision-instruct` for OCR and
-  `@cf/meta/llama-3.1-8b-instruct` for structured data extraction and corrections.
+  `@cf/meta/llama-3.1-8b-instruct-fp8` for structured data extraction and corrections.
 - **R2 Storage**: Stores flyer images.
 - **D1 Database**: Stores event metadata in a SQLite-compatible database.
 - **KV Storage**: Stages embargoed events, stores deletion backups, and caches
@@ -35,9 +35,14 @@ The project is built as a **Cloudflare Worker** and leverages the following serv
    - **AI Refinement (`src/ocr.ts`)**: Merges OCR text, caption context, and
      calendar data into structured JSON.
 4. **Merging (`src/db.ts`)**: Final merge priority is
-   **caption > VLM > performers-as-title > auto-population defaults**.
-   Calendars inform the VLM prompt but do not override caption data in
-   `buildEvent`.
+   **VLM > caption > performers-as-title > auto-population defaults** for
+   `title`/`performers`/`price`/`tags`/`description` — the flyer image (read
+   by the VLM, with calendar context) is more informed than a caption that may
+   just be human shorthand. `date` and `venue` keep **caption > VLM** priority,
+   since staff deliberately use the caption to correct a misprinted flyer. A
+   plausibility guard also discards a lone, uncorroborated caption performer
+   guess (e.g. a stray "V2") when the calendar doesn't back it up and the VLM
+   found a fuller lineup.
 5. **Publishing**: Events are inserted into D1 immediately unless an
    `announce_after` date stages them in KV.
 6. **Deletion & Restore**: Deleting the original Slack message removes the D1
@@ -60,6 +65,9 @@ npm run dev
 
 # Type check
 npm run build
+
+# Run unit tests (vitest)
+npm test
 ```
 
 ### Deployment
@@ -88,8 +96,12 @@ local/dev values, never production secrets.
   `age_restriction`, `performers`, `tags` (plus `announce_after` for staging
   logic).
 - **Calendar Usage**: Official calendars are provided to the VLM as the highest
-  source of truth in the prompt. The final `buildEvent` merge still respects
-  caption > VLM > defaults.
+  source of truth in the prompt, and are also the arbiter for the plausibility
+  guard in `buildEvent` (see Architecture above).
+- **Price Extraction**: A dollar amount printed on the flyer must always
+  survive into `price`, even alongside PWYC/sliding-scale — e.g.
+  `"PWYC ($10-15)"`, not bare `"PWYC"`. Enforced both in the VLM prompt
+  (`src/ocr.ts`) and in `extractPrice()` (`src/caption_parser.ts`).
 - **Embargo & TTLs**: Embargo KV entries expire `announce_after + 1 day`;
   calendar KV entries expire after 60 days.
 - **Deletion Backups**: Persist until explicitly `release`d or `delete`d.
@@ -101,7 +113,10 @@ local/dev values, never production secrets.
 ## AI Models
 
 - Vision: `@cf/meta/llama-3.2-11b-vision-instruct`
-- Text: `@cf/meta/llama-3.1-8b-instruct`
+- Text: `@cf/meta/llama-3.1-8b-instruct-fp8` (plain `-instruct` was deprecated
+  2026-05-30 and silently failed every call until caught via Workers
+  Observability logs — always confirm a model is still active in
+  `wrangler ai models` before relying on it)
 
 ## Key Files
 

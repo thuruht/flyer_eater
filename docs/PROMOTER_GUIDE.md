@@ -27,8 +27,12 @@ retyping the full lineup — a short caption is fine.
 Good captions:
 - `7/23 - Howdy - VELVET, Granule, Dreamist`
 - `Aug 2 at Farewell, $10`
-- `repost - hardcore matinee @ howdy - $5` (labels like "repost", "v2", "pt 2"
-  are recognized and ignored, not treated as a band name)
+- `repost - hardcore matinee @ howdy - $5` (labels like "repost", "update",
+  "v2", "pt 2" are recognized and ignored, not treated as a band name)
+
+If the flyer says PWYC with a dollar amount or range (e.g. "$10-15 PWYC"),
+the dollar figure is always kept in the listing — it's more useful than the
+PWYC label alone.
 
 Supported date formats: `7/23`, `07.23.26`, `2026-07-23`, `July 23`,
 `23rd of July`, `this Saturday`, `tomorrow`.
@@ -74,5 +78,5 @@ auto-correct any already-posted events for that month that don't match.
 |---|---|
 | ⚠️ "Title defaulted to TBA" | Neither the flyer scan nor the caption had a clear title/lineup — reply with a correction. |
 | ⚠️ "Date defaulted to today" | No date was found anywhere — reply with `date is <actual date>`. |
-| Price shows "TBD" | The flyer scan didn't catch the price line — reply with `price is $X`. |
+| Price shows "TBD" | The flyer scan didn't catch a price at all — reply with `price is $X`. |
 | Bot didn't respond at all | Make sure an image is actually attached, not just linked/pasted as text. |
