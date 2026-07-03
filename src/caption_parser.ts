@@ -217,7 +217,7 @@ function extractPerformers(text: string): string[] | null {
     .replace(/\b6515\b/g, '')
     .replace(/\bv\d+\b/gi, '')
     .replace(/\bpt\.?\s*\d+\b/gi, '')
-    .replace(/\b(?:repost|reup|re-up|revised|updated|redo)\b:?\s*/gi, '')
+    .replace(/\b(?:repost|reup|re-up|revised|updated?|redo)\b:?\s*/gi, '')
     .replace(/[-–—@]\s*/g, ' ')
     .trim();
 

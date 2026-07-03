@@ -21,4 +21,14 @@ describe('parseCaption performer extraction — version/revision tokens', () => 
     const result = parseCaption('Dry Rot + Gag v3, Jan 15 at Farewell');
     expect(result.performers).toEqual(['Dry Rot', 'Gag']);
   });
+
+  it('does not treat a bare "update" caption as a performer', () => {
+    const result = parseCaption('UPDATE - Howdy 8/6');
+    expect(result.performers).toBeUndefined();
+  });
+
+  it('strips "update" from a caption with real performers', () => {
+    const result = parseCaption('UPDATE: Dry Rot + Gag, Jan 15 at Farewell');
+    expect(result.performers).toEqual(['Dry Rot', 'Gag']);
+  });
 });
