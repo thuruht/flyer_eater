@@ -228,7 +228,10 @@ export default {
              // ── CALENDAR INGESTION BRANCH ──────────────────────────────
              const isCalendar = file.name?.toLowerCase().includes('bw_cal') || caption.toLowerCase().includes('calendar');
              if (isCalendar) {
-               const ocrText = await transcribeFlyer(env.AI, imageBuffer);
+               // A calendar image covers a full month for one venue (~30 dated
+               // entries, each with multiple bands) — far longer than a single
+               // flyer, so it needs a much larger transcription budget.
+               const ocrText = await transcribeFlyer(env.AI, imageBuffer, { maxTokens: 2048 });
                console.log(`[flyer-eater] [STAGE: CALENDAR_OCR] file=${file.name} text_len=${ocrText.length}`);
                let venueKey: 'farewell' | 'howdy' = venueFromCaption ?? 'farewell';
                let year = new Date().getFullYear();

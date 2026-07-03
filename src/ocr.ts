@@ -1,16 +1,22 @@
 import type { VLMExtract, FarwhyEvent } from './types';
 import { safeParseJson } from './json_utils';
 
+// A single flyer's text is short; a full-month calendar grid (one per venue)
+// has ~30 date entries with multiple bands each and needs much more room —
+// 512 tokens was cutting calendar transcription off partway through the month.
+const FLYER_MAX_TOKENS = 768;
+
 /**
  * Step 1: Transcribe the flyer image to raw text.
  * Uses the vision model for OCR only, minimizing hallucination.
  */
 export async function transcribeFlyer(
   ai: Ai,
-  imageBuffer: ArrayBuffer
+  imageBuffer: ArrayBuffer,
+  options: { maxTokens?: number } = {}
 ): Promise<string> {
   const prompt = `
-Read and transcribe ALL visible text on this concert flyer image. 
+Read and transcribe ALL visible text on this concert flyer image.
 Include every word, number, date, time, price, and band name you can see.
 Do not interpret or format, just output the raw transcribed text exactly as it appears.
 If you cannot read anything, output "NO_TEXT_FOUND".
@@ -22,7 +28,7 @@ If you cannot read anything, output "NO_TEXT_FOUND".
       {
         image: [...new Uint8Array(imageBuffer)],
         prompt,
-        max_tokens: 512,
+        max_tokens: options.maxTokens ?? FLYER_MAX_TOKENS,
         temperature: 0
       }
     );

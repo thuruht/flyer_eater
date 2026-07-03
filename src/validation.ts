@@ -74,14 +74,15 @@ Output ONLY raw JSON.
 `.trim();
 
   try {
-    const aiResult: any = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+    const aiResult: any = await ai.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
       messages: [{ role: "system", content: systemPrompt }],
       max_tokens: 512,
       temperature: 0
     });
     const rawResult = aiResult.response || aiResult.result || aiResult.description || '';
     return safeParseJson<Partial<FarwhyEvent>>(rawResult) ?? {};
-  } catch {
+  } catch (err) {
+    console.error(`[validation] Failed to check event ${event.id} against calendar:`, err);
     return {};
   }
 }
