@@ -12,8 +12,10 @@ D1 `farewell-db` event database.
 3. The flyer image is OCR'd via Workers AI (vision model).
 4. OCR text + caption + optional venue calendar are sent to a text LLM for
    structured extraction (title, date, venue, price, performers, etc.).
-5. Caption data takes priority; VLM fills in gaps; performer names are used as a
-   title fallback; `applyAutoPopulationRules` covers the rest.
+5. The flyer image (via the vision/text LLM pipeline) takes priority for title,
+   performers, price, tags, and description; caption fills in gaps there. The
+   caption takes priority for date and venue, since staff use it to correct
+   misprinted flyers. `applyAutoPopulationRules` covers anything still missing.
 6. Events are published immediately or staged in KV if embargoed.
 7. A cron job (`*/15 * * * *`) publishes matured embargoes and validates
    existing events from the last 30 days against stored venue calendars.
