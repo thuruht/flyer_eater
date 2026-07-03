@@ -215,6 +215,9 @@ function extractPerformers(text: string): string[] | null {
     .replace(/\b\d{1,2}(?::\d{2})?\s*(?:pm|am)\b/gi, '')
     .replace(/\b(?:at\s+)?(?:farewell|howdy)\b/gi, '')
     .replace(/\b6515\b/g, '')
+    .replace(/\bv\d+\b/gi, '')
+    .replace(/\bpt\.?\s*\d+\b/gi, '')
+    .replace(/\b(?:repost|reup|re-up|revised|updated|redo)\b:?\s*/gi, '')
     .replace(/[-–—@]\s*/g, ' ')
     .trim();
 

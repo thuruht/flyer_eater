@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "slack-cloudflare-workers": "^1.3.10"
@@ -14,6 +15,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260130.0",
     "typescript": "^5.x",
+    "vitest": "^4.1.9",
     "wrangler": "^3.x"
   }
 }

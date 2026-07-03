@@ -297,7 +297,7 @@ export default {
                ?? (vlmData.venue_hint === 'howdy' ? 'howdy' : 'farewell');
 
              // 6. Merge caption and VLM data
-             const { event, warnings } = buildEvent(captionData, vlmData, finalVenue, imageUrl);
+             const { event, warnings } = buildEvent(captionData, vlmData, finalVenue, imageUrl, calendarText);
              console.log('[flyer-eater] [STAGE: MERGE] Result:', JSON.stringify(event));
 
 

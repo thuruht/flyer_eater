@@ -34,30 +34,48 @@ export function buildEvent(
   captionExtract: Partial<VLMExtract>,
   vlmExtract: Partial<VLMExtract>,
   venue: 'farewell' | 'howdy',
-  flyerImageUrl: string
+  flyerImageUrl: string,
+  calendarText?: string | null
 ): { event: FarwhyEvent, warnings: string[] } {
   const warnings: string[] = [];
 
-  // Merge logic: caption > VLM > performers > default
-  let title = captionExtract.title ?? vlmExtract.title;
-  if (!title && captionExtract.performers?.length) title = captionExtract.performers.join(' / ');
+  // Plausibility guard: a lone caption "performer" not corroborated by the
+  // calendar, when VLM (reading the actual flyer) found a fuller lineup, is
+  // almost always caption noise (e.g. "V2") rather than a real performer.
+  if (
+    captionExtract.performers?.length === 1 &&
+    calendarText &&
+    vlmExtract.performers && vlmExtract.performers.length >= 2 &&
+    !calendarText.toLowerCase().includes(captionExtract.performers[0].toLowerCase())
+  ) {
+    captionExtract = { ...captionExtract, performers: undefined, title: undefined };
+    warnings.push('Caption performer guess discarded (not in calendar, VLM had fuller lineup)');
+  }
+
+  // Merge logic: VLM > caption > performers > default. VLM reads the flyer
+  // itself (with calendar context) and is the more informed source for
+  // content fields; caption remains the fallback when VLM comes up empty.
+  let title = vlmExtract.title ?? captionExtract.title;
   if (!title && vlmExtract.performers?.length) title = vlmExtract.performers.join(' / ');
+  if (!title && captionExtract.performers?.length) title = captionExtract.performers.join(' / ');
 
   if (!title) warnings.push('Title defaulted to TBA');
 
+  // date and venue keep caption priority — staff deliberately use the
+  // caption to correct a misprinted flyer date or disambiguate venue.
   const date = captionExtract.date ?? vlmExtract.date;
   if (!date) warnings.push('Date defaulted to today');
 
-  const price = captionExtract.price ?? vlmExtract.price;
+  const price = vlmExtract.price ?? captionExtract.price;
   const event_time = captionExtract.event_time ?? vlmExtract.event_time;
-  const description = captionExtract.description ?? vlmExtract.description;
-  
-  // Merge performers and tags: prefer caption, fallback to VLM
-  let performers = captionExtract.performers;
-  if (!performers || performers.length === 0) performers = vlmExtract.performers;
+  const description = vlmExtract.description ?? captionExtract.description;
 
-  let tags = captionExtract.tags;
-  if (!tags || tags.length === 0) tags = vlmExtract.tags;
+  // Merge performers and tags: prefer VLM, fallback to caption
+  let performers = vlmExtract.performers;
+  if (!performers || performers.length === 0) performers = captionExtract.performers;
+
+  let tags = vlmExtract.tags;
+  if (!tags || tags.length === 0) tags = captionExtract.tags;
 
   const partial: Partial<FarwhyEvent> = {
     venue,
